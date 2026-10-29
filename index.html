@@ -93,9 +93,10 @@
 /*CORE*/
 function sparql(a, b) {
   return `SELECT ?p ?pLabel (MIN(?a1) AS ?aFrom) (MAX(?a2) AS ?aTo) (MIN(?b1) AS ?bFrom) (MAX(?b2) AS ?bTo) WHERE {
-  ?p p:P54 ?sa . ?sa ps:P54 wd:${a} .
+  ?p wdt:P106 wd:Q937857 .
+  ?p p:P54 ?sa . ?sa ps:P54 ?ta . ?ta (wdt:P361|^wdt:P361)? wd:${a} .
   OPTIONAL { ?sa pq:P580 ?s1 } OPTIONAL { ?sa pq:P582 ?e1 }
-  ?p p:P54 ?sb . ?sb ps:P54 wd:${b} .
+  ?p p:P54 ?sb . ?sb ps:P54 ?tb . ?tb (wdt:P361|^wdt:P361)? wd:${b} .
   OPTIONAL { ?sb pq:P580 ?s2 } OPTIONAL { ?sb pq:P582 ?e2 }
   BIND(YEAR(?s1) AS ?a1) BIND(YEAR(?e1) AS ?a2) BIND(YEAR(?s2) AS ?b1) BIND(YEAR(?e2) AS ?b2)
   SERVICE wikibase:label { bd:serviceParam wikibase:language "tr,en". }
@@ -140,7 +141,7 @@ function picker(key, input, box, label) {
         list.slice(0, 7).forEach((c) => {
           const b = document.createElement('button'); b.type = 'button';
           b.innerHTML = `${esc(c.label)}<span>${esc(c.description || '')}</span>`;
-          b.onclick = () => { picked[key] = c; input.value = c.label; label.textContent = '✓ ' + c.label; box.hidden = true; $('go').disabled = !(picked.a && picked.b); };
+          b.onclick = () => { picked[key] = c; input.value = c.label; label.textContent = '✓ ' + c.label + (c.description ? ' — ' + c.description : ''); box.hidden = true; $('go').disabled = !(picked.a && picked.b); };
           box.appendChild(b);
         });
         box.hidden = !list.length;
@@ -165,7 +166,7 @@ $('go').onclick = async () => {
       <span class="meta">${esc(a.label)}: ${esc(p.a)}</span><span class="meta">${esc(b.label)}: ${esc(p.b)}</span></li>`).join('');
     $('out').hidden = false;
     $('out').innerHTML = `<h2 class="count">${list.length} ortak futbolcu</h2>
-      ${list.length ? `<ul class="res">${items}</ul>` : `<p class="note">${esc(a.label)} ve ${esc(b.label)} arasında ortak oyuncu bulunamadı.</p>`}
+      ${list.length ? `<ul class="res">${items}</ul>` : `<p class="note">${esc(a.label)} ve ${esc(b.label)} arasında ortak oyuncu bulunamadı.<br>Seçilen kayıtlar: <a href="https://www.wikidata.org/wiki/${esc(a.id)}" target="_blank" rel="noopener">${esc(a.id)}</a> ${esc(a.description || '')}, <a href="https://www.wikidata.org/wiki/${esc(b.id)}" target="_blank" rel="noopener">${esc(b.id)}</a> ${esc(b.description || '')}. Yanlış kulübü seçtiysen başka öneriyi dene.</p>`}
       <p class="note">Veri Wikidata'dan canlı gelir. Kayıtlar gönüllüler tarafından girildiği için çok yeni transferler veya az bilinen oyuncular eksik olabilir.</p>`;
   } catch (e) { setStatus('Sorgu başarısız: ' + e.message, true); }
   $('go').disabled = false;
