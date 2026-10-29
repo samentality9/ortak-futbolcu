@@ -86,6 +86,14 @@
     <div class="status" id="status"></div>
   </section>
 
+    <section class="panel" id="plPanel">
+    <details>
+      <summary>Oyuncu kontrolü</summary>
+      <div class="field" style="margin-top:12px"><label for="qp">Oyuncu adı</label><input type="text" id="qp" placeholder="Joe Worrall" autocomplete="off"><div class="sug" id="sp" hidden></div></div>
+      <div id="plOut"></div>
+    </details>
+  </section>
+
   <section id="out" hidden></section>
 </main>
 
@@ -115,6 +123,21 @@ function mapResults(json) {
     a: span(v(r, 'aFrom'), v(r, 'aTo')),
     b: span(v(r, 'bFrom'), v(r, 'bTo')),
   })).sort((x, y) => x.name.localeCompare(y.name, 'tr'));
+}
+function playerQuery(id) {
+  return `SELECT ?tLabel (YEAR(?s) AS ?from) (YEAR(?e) AS ?to) WHERE {
+  wd:${id} p:P54 ?st . ?st ps:P54 ?t .
+  OPTIONAL { ?st pq:P580 ?s } OPTIONAL { ?st pq:P582 ?e }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "tr,en". }
+}`;
+}
+function mapTeams(json) {
+  const v = (r, k) => (r[k] && r[k].value !== '' ? Number(r[k].value) : null);
+  return json.results.bindings.map((r) => ({
+    name: r.tLabel ? r.tLabel.value : '?',
+    from: v(r, 'from'),
+    years: span(v(r, 'from'), v(r, 'to')),
+  })).sort((x, y) => (x.from ?? 9999) - (y.from ?? 9999));
 }
 /*END*/
 
@@ -171,5 +194,42 @@ $('go').onclick = async () => {
   } catch (e) { setStatus('Sorgu başarısız: ' + e.message, true); }
   $('go').disabled = false;
 };
+(function () {
+  const input = $('qp'), box = $('sp'), out = $('plOut');
+  let timer;
+  input.addEventListener('input', () => {
+    clearTimeout(timer); out.innerHTML = '';
+    const q = input.value.trim();
+    if (q.length < 3) { box.hidden = true; return; }
+    timer = setTimeout(async () => {
+      try {
+        const url = 'https://www.wikidata.org/w/api.php?action=wbsearchentities&type=item&limit=10&format=json&origin=*&language=tr&uselang=tr&search=' + encodeURIComponent(q);
+        let list = (await (await fetch(url)).json()).search || [];
+        const fb = list.filter((x) => /futbol|football|soccer/i.test(x.description || ''));
+        if (fb.length) list = fb;
+        box.innerHTML = '';
+        list.slice(0, 7).forEach((c) => {
+          const b = document.createElement('button'); b.type = 'button';
+          b.innerHTML = `${esc(c.label)}<span>${esc(c.description || '')}</span>`;
+          b.onclick = () => { input.value = c.label; box.hidden = true; showPlayer(c); };
+          box.appendChild(b);
+        });
+        box.hidden = !list.length;
+      } catch { box.hidden = true; }
+    }, 350);
+  });
+  async function showPlayer(c) {
+    out.innerHTML = '<p class="note">Yükleniyor…</p>';
+    try {
+      const res = await fetch('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(playerQuery(c.id)), { headers: { Accept: 'application/sparql-results+json' } });
+      if (!res.ok) throw new Error('Wikidata ' + res.status + ' döndürdü');
+      const teams = mapTeams(await res.json());
+      out.innerHTML = `<p class="note" style="margin-top:12px"><b>${esc(c.label)}</b> <a href="https://www.wikidata.org/wiki/${esc(c.id)}" target="_blank" rel="noopener">${esc(c.id)}</a></p>` +
+        (teams.length ? `<ul class="res">${teams.map((t) => `<li><span>${esc(t.name)}</span><span class="meta">${esc(t.years)}</span></li>`).join('')}</ul>`
+          : '<p class="note">Wikidata\'da bu oyuncu için kulüp kaydı yok.</p>');
+    } catch (e) { out.innerHTML = '<p class="note">Sorgu başarısız: ' + esc(e.message) + '</p>'; }
+  }
+  document.addEventListener('click', (e) => { if (!box.contains(e.target) && e.target !== input) box.hidden = true; });
+})();
 </script>
 </body></html>
