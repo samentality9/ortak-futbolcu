@@ -72,21 +72,35 @@
   .note { color: var(--muted); font-size: .82rem; margin: 0; }
 </style>
 </head><body>
+<style>
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; }
+  .guess { display: flex; gap: 10px; }
+  .guess input { flex: 1; min-width: 0; }
+  .slot { padding: 12px 0; border-top: 1px solid var(--line); display: grid; gap: 2px; min-width: 0; }
+  .slot .nm { font-weight: 600; overflow-wrap: anywhere; }
+  .slot.closed .nm { letter-spacing: .25em; color: var(--muted); }
+  .opt { color: var(--muted); text-transform: none; letter-spacing: 0; }
+  .fb { min-height: 1.4em; font-size: .92rem; margin: 0; }
+  .fb.ok { color: var(--accent); }
+  .fb.no { color: var(--warn); }
+  .score { font: 700 1.5rem var(--font-display); text-transform: uppercase; margin: 0; }
+</style>
 
 <main>
   <header>
     <h1>Ortak Futbolcular</h1>
-    <p class="sub">İki kulüp seç, ikisinde de forma giymiş futbolcuları Wikidata'dan canlı getir.</p>
+    <p class="sub">İki veya üç kulüp seç, hepsinde forma giymiş futbolcuları Wikidata'dan canlı getir.</p>
   </header>
 
   <section class="panel" id="pickPanel">
     <div class="field"><label for="qa">1. Kulüp</label><input type="text" id="qa" placeholder="Beşiktaş" autocomplete="off"><div class="sug" id="sa" hidden></div><div class="picked" id="pa"></div></div>
     <div class="field"><label for="qb">2. Kulüp</label><input type="text" id="qb" placeholder="Juventus" autocomplete="off"><div class="sug" id="sb" hidden></div><div class="picked" id="pb"></div></div>
+    <div class="field"><label for="qc">3. Kulüp <span class="opt">(isteğe bağlı)</span></label><input type="text" id="qc" placeholder="Fenerbahçe" autocomplete="off"><div class="sug" id="sc" hidden></div><div class="picked" id="pc"></div></div>
     <button class="go" id="go" type="button" disabled>Ortak oyuncuları bul</button>
     <div class="status" id="status"></div>
   </section>
 
-    <section class="panel" id="plPanel">
+  <section class="panel" id="plPanel">
     <details>
       <summary>Oyuncu kontrolü</summary>
       <div class="field" style="margin-top:12px"><label for="qp">Oyuncu adı</label><input type="text" id="qp" placeholder="Joe Worrall" autocomplete="off"><div class="sug" id="sp" hidden></div></div>
@@ -99,14 +113,18 @@
 
 <script>
 /*CORE*/
-function sparql(a, b) {
-  return `SELECT ?p ?pLabel (MIN(?a1) AS ?aFrom) (MAX(?a2) AS ?aTo) (MIN(?b1) AS ?bFrom) (MAX(?b2) AS ?bTo) WHERE {
+function norm(s) {
+  return String(s).replace(/İ/g, 'i').replace(/I/g, 'i').replace(/ı/g, 'i').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ß/g, 'ss').replace(/ø/g, 'o').replace(/đ/g, 'd').replace(/ł/g, 'l');
+}
+function sparql(ids) {
+  const sel = ids.map((_, i) => `(MIN(?y${i}a) AS ?from${i}) (MAX(?y${i}b) AS ?to${i})`).join(' ');
+  const body = ids.map((id, i) => `  ?p p:P54 ?s${i} . ?s${i} ps:P54 ?t${i} . ?t${i} (wdt:P361|^wdt:P361)? wd:${id} .
+  OPTIONAL { ?s${i} pq:P580 ?b${i} } OPTIONAL { ?s${i} pq:P582 ?e${i} }
+  BIND(YEAR(?b${i}) AS ?y${i}a) BIND(YEAR(?e${i}) AS ?y${i}b)`).join('\n');
+  return `SELECT ?p ?pLabel ${sel} WHERE {
   ?p wdt:P106 wd:Q937857 .
-  ?p p:P54 ?sa . ?sa ps:P54 ?ta . ?ta (wdt:P361|^wdt:P361)? wd:${a} .
-  OPTIONAL { ?sa pq:P580 ?s1 } OPTIONAL { ?sa pq:P582 ?e1 }
-  ?p p:P54 ?sb . ?sb ps:P54 ?tb . ?tb (wdt:P361|^wdt:P361)? wd:${b} .
-  OPTIONAL { ?sb pq:P580 ?s2 } OPTIONAL { ?sb pq:P582 ?e2 }
-  BIND(YEAR(?s1) AS ?a1) BIND(YEAR(?e1) AS ?a2) BIND(YEAR(?s2) AS ?b1) BIND(YEAR(?e2) AS ?b2)
+${body}
   SERVICE wikibase:label { bd:serviceParam wikibase:language "tr,en". }
 } GROUP BY ?p ?pLabel`;
 }
@@ -115,14 +133,26 @@ function span(from, to) {
   if (from != null && to != null) return from === to ? String(from) : from + '–' + to;
   return from != null ? from + '–' : '–' + to;
 }
-function mapResults(json) {
+function mapResults(json, n) {
   const v = (r, k) => (r[k] && r[k].value !== '' ? Number(r[k].value) : null);
   return json.results.bindings.map((r) => ({
     id: r.p.value.split('/').pop(),
     name: r.pLabel ? r.pLabel.value : r.p.value.split('/').pop(),
-    a: span(v(r, 'aFrom'), v(r, 'aTo')),
-    b: span(v(r, 'bFrom'), v(r, 'bTo')),
+    spans: Array.from({ length: n }, (_, i) => span(v(r, 'from' + i), v(r, 'to' + i))),
   })).sort((x, y) => x.name.localeCompare(y.name, 'tr'));
+}
+function parseHash(h) {
+  const ids = String(h || '').replace(/^#/, '').split(',').filter((x) => /^Q\d+$/.test(x));
+  return [...new Set(ids)].slice(0, 3);
+}
+function findGuess(players, found, guess) {
+  const g = norm(guess.trim());
+  if (g.length < 3) return [];
+  return players.filter((p) => {
+    if (found.has(p.id)) return false;
+    const n = norm(p.name);
+    return n === g || n.split(/[\s\-]+/).includes(g);
+  });
 }
 function playerQuery(id) {
   return `SELECT ?tLabel (YEAR(?s) AS ?from) (YEAR(?e) AS ?to) WHERE {
@@ -143,28 +173,36 @@ function mapTeams(json) {
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const picked = { a: null, b: null };
+const picked = [null, null, null];
+const inputs = [$('qa'), $('qb'), $('qc')];
+const labelEls = [$('pa'), $('pb'), $('pc')];
 const setStatus = (t, err) => { $('status').textContent = t; $('status').className = 'status' + (err ? ' err' : ''); };
+const ready = () => { $('go').disabled = !(picked[0] && picked[1]); };
+const SEARCH = 'https://www.wikidata.org/w/api.php?action=wbsearchentities&type=item&limit=10&format=json&origin=*&language=tr&uselang=tr&search=';
+const footballOnly = (list) => { const fb = list.filter((x) => /futbol|football|soccer/i.test(x.description || '')); return fb.length ? fb : list; };
 
-function picker(key, input, box, label) {
+function setPicked(i, c) {
+  picked[i] = c;
+  inputs[i].value = c.label;
+  labelEls[i].textContent = '✓ ' + c.label + (c.description ? ' — ' + c.description : '');
+  ready();
+}
+
+function picker(i, input, box, label) {
   let timer;
   input.addEventListener('input', () => {
-    picked[key] = null; label.textContent = ''; $('go').disabled = true;
+    picked[i] = null; label.textContent = ''; ready();
     clearTimeout(timer);
     const q = input.value.trim();
     if (q.length < 2) { box.hidden = true; return; }
     timer = setTimeout(async () => {
       try {
-        const url = 'https://www.wikidata.org/w/api.php?action=wbsearchentities&type=item&limit=10&format=json&origin=*&language=tr&uselang=tr&search=' + encodeURIComponent(q);
-        const j = await (await fetch(url)).json();
-        let list = j.search || [];
-        const fb = list.filter((x) => /futbol|football|soccer/i.test(x.description || ''));
-        if (fb.length) list = fb;
+        const list = footballOnly((await (await fetch(SEARCH + encodeURIComponent(q))).json()).search || []);
         box.innerHTML = '';
         list.slice(0, 7).forEach((c) => {
           const b = document.createElement('button'); b.type = 'button';
           b.innerHTML = `${esc(c.label)}<span>${esc(c.description || '')}</span>`;
-          b.onclick = () => { picked[key] = c; input.value = c.label; label.textContent = '✓ ' + c.label + (c.description ? ' — ' + c.description : ''); box.hidden = true; $('go').disabled = !(picked.a && picked.b); };
+          b.onclick = () => { setPicked(i, c); box.hidden = true; };
           box.appendChild(b);
         });
         box.hidden = !list.length;
@@ -173,27 +211,109 @@ function picker(key, input, box, label) {
   });
   document.addEventListener('click', (e) => { if (!box.contains(e.target) && e.target !== input) box.hidden = true; });
 }
-picker('a', $('qa'), $('sa'), $('pa'));
-picker('b', $('qb'), $('sb'), $('pb'));
+picker(0, inputs[0], $('sa'), labelEls[0]);
+picker(1, inputs[1], $('sb'), labelEls[1]);
+picker(2, inputs[2], $('sc'), labelEls[2]);
 
-$('go').onclick = async () => {
-  const { a, b } = picked; if (!a || !b) return;
-  if (a.id === b.id) { setStatus('İki farklı kulüp seç.', true); return; }
+let players = [], clubs = [];
+
+async function run() {
+  clubs = picked.filter(Boolean);
+  if (clubs.length < 2) return;
+  if (new Set(clubs.map((c) => c.id)).size !== clubs.length) { setStatus('Farklı kulüpler seç.', true); return; }
   $('go').disabled = true; $('out').hidden = true; setStatus('Wikidata sorgulanıyor…');
   try {
-    const res = await fetch('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(sparql(a.id, b.id)), { headers: { Accept: 'application/sparql-results+json' } });
+    const res = await fetch('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(sparql(clubs.map((c) => c.id))), { headers: { Accept: 'application/sparql-results+json' } });
     if (!res.ok) throw new Error('Wikidata ' + res.status + ' döndürdü');
-    const list = mapResults(await res.json());
+    players = mapResults(await res.json(), clubs.length);
     setStatus('');
-    const items = list.map((p) => `<li><a href="https://www.wikidata.org/wiki/${esc(p.id)}" target="_blank" rel="noopener">${esc(p.name)}</a>
-      <span class="meta">${esc(a.label)}: ${esc(p.a)}</span><span class="meta">${esc(b.label)}: ${esc(p.b)}</span></li>`).join('');
-    $('out').hidden = false;
-    $('out').innerHTML = `<h2 class="count">${list.length} ortak futbolcu</h2>
-      ${list.length ? `<ul class="res">${items}</ul>` : `<p class="note">${esc(a.label)} ve ${esc(b.label)} arasında ortak oyuncu bulunamadı.<br>Seçilen kayıtlar: <a href="https://www.wikidata.org/wiki/${esc(a.id)}" target="_blank" rel="noopener">${esc(a.id)}</a> ${esc(a.description || '')}, <a href="https://www.wikidata.org/wiki/${esc(b.id)}" target="_blank" rel="noopener">${esc(b.id)}</a> ${esc(b.description || '')}. Yanlış kulübü seçtiysen başka öneriyi dene.</p>`}
-      <p class="note">Veri Wikidata'dan canlı gelir. Kayıtlar gönüllüler tarafından girildiği için çok yeni transferler veya az bilinen oyuncular eksik olabilir.</p>`;
+    try { history.replaceState(null, '', '#' + clubs.map((c) => c.id).join(',')); } catch {}
+    renderList();
   } catch (e) { setStatus('Sorgu başarısız: ' + e.message, true); }
-  $('go').disabled = false;
-};
+  ready();
+}
+$('go').onclick = run;
+
+function clubNames() { return clubs.map((c) => c.label).join(' × '); }
+
+function renderList() {
+  const out = $('out'); out.hidden = false;
+  const items = players.map((p) => `<li><a href="https://www.wikidata.org/wiki/${esc(p.id)}" target="_blank" rel="noopener">${esc(p.name)}</a>${
+    clubs.map((c, i) => `<span class="meta">${esc(c.label)}: ${esc(p.spans[i])}</span>`).join('')}</li>`).join('');
+  const missing = clubs.map((c) => `<a href="https://www.wikidata.org/wiki/${esc(c.id)}" target="_blank" rel="noopener">${esc(c.id)}</a> ${esc(c.description || '')}`).join(', ');
+  out.innerHTML = `<h2 class="count">${players.length} ortak futbolcu</h2>
+    <p class="actions"><button class="btn2" id="share" type="button">Bağlantıyı paylaş</button>${players.length ? '<button class="btn2" id="game" type="button">Tahmin oyunu</button>' : ''}</p>
+    <p class="note" id="shareNote" hidden></p>
+    ${players.length ? `<ul class="res">${items}</ul>` : `<p class="note">${esc(clubNames())} için ortak oyuncu bulunamadı.<br>Seçilen kayıtlar: ${missing}. Yanlış kulübü seçtiysen başka öneriyi dene.</p>`}
+    <p class="note">Veri Wikidata'dan canlı gelir. Kayıtlar gönüllüler tarafından girildiği için çok yeni transferler, kiralıklar veya az bilinen oyuncular eksik olabilir.</p>`;
+  $('share').onclick = share;
+  if ($('game')) $('game').onclick = startGame;
+}
+
+async function share() {
+  const url = location.origin + location.pathname + '#' + clubs.map((c) => c.id).join(',');
+  const note = $('shareNote');
+  try { if (navigator.share) { await navigator.share({ title: 'Ortak Futbolcular: ' + clubNames(), url }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(url); note.textContent = 'Bağlantı kopyalandı: ' + url; }
+  catch { note.textContent = 'Bağlantı: ' + url; }
+  note.hidden = false;
+}
+
+/* ---- Tahmin oyunu ---- */
+let found = new Set();
+function startGame() { found = new Set(); renderGame(false, ''); }
+function renderGame(reveal, msg, ok) {
+  const out = $('out');
+  const slots = players.map((p) => {
+    const open = reveal || found.has(p.id);
+    return `<li class="slot ${open ? '' : 'closed'}"><span class="nm">${open ? esc(p.name) : '? ? ? ? ?'}</span>${
+      open ? clubs.map((c, i) => `<span class="meta">${esc(c.label)}: ${esc(p.spans[i])}</span>`).join('') : ''}</li>`;
+  }).join('');
+  const done = found.size === players.length;
+  out.innerHTML = `<h2 class="score">${found.size} / ${players.length} bulundu</h2>
+    <p class="note" style="margin-top:6px">${esc(clubNames())} kulüplerinin hepsinde oynamış futbolcuları bul. Soyadı yazman yeter.</p>
+    ${reveal || done ? '' : `<div class="guess" style="margin-top:12px"><input type="text" id="qg" placeholder="Futbolcu adı" autocomplete="off" autocapitalize="words"><button class="go" id="guessBtn" type="button">Tahmin et</button></div>`}
+    <p class="fb ${ok === true ? 'ok' : ok === false ? 'no' : ''}" id="fb">${done && !reveal ? 'Hepsini buldun!' : esc(msg)}</p>
+    <p class="actions">${reveal || done ? '' : '<button class="btn2" id="giveUp" type="button">Cevapları göster</button>'}<button class="btn2" id="back" type="button">Listeye dön</button></p>
+    <ul class="res" style="margin-top:12px">${slots}</ul>`;
+  $('back').onclick = renderList;
+  if ($('giveUp')) $('giveUp').onclick = () => renderGame(true, '');
+  if ($('guessBtn')) {
+    const input = $('qg');
+    const submit = () => {
+      const hits = findGuess(players, found, input.value);
+      if (!hits.length) {
+        const already = players.some((p) => found.has(p.id) && norm(p.name).split(/[\s\-]+/).includes(norm(input.value.trim())));
+        return renderGame(false, already ? 'Bunu zaten buldun.' : input.value.trim().length < 3 ? 'En az 3 harf yaz.' : 'Listede böyle bir futbolcu yok.', false);
+      }
+      hits.forEach((h) => found.add(h.id));
+      renderGame(false, hits.map((h) => h.name).join(', ') + ' doğru!', true);
+    };
+    $('guessBtn').onclick = submit;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    input.focus();
+  }
+}
+
+/* ---- Paylaşılan bağlantıdan açılış ---- */
+(async function fromHash() {
+  const ids = parseHash(location.hash);
+  if (ids.length < 2) return;
+  try {
+    setStatus('Kulüpler yükleniyor…');
+    const url = 'https://www.wikidata.org/w/api.php?action=wbgetentities&props=labels|descriptions&languages=tr|en&format=json&origin=*&ids=' + ids.join('|');
+    const ents = (await (await fetch(url)).json()).entities || {};
+    ids.forEach((id, i) => {
+      const e = ents[id]; if (!e) return;
+      const l = e.labels || {}, d = e.descriptions || {};
+      setPicked(i, { id, label: (l.tr || l.en || { value: id }).value, description: (d.tr || d.en || { value: '' }).value });
+    });
+    setStatus('');
+    if (picked[0] && picked[1]) run();
+  } catch { setStatus('Paylaşılan kulüpler yüklenemedi.', true); }
+})();
+
+/* ---- Oyuncu kontrolü ---- */
 (function () {
   const input = $('qp'), box = $('sp'), out = $('plOut');
   let timer;
@@ -203,10 +323,7 @@ $('go').onclick = async () => {
     if (q.length < 3) { box.hidden = true; return; }
     timer = setTimeout(async () => {
       try {
-        const url = 'https://www.wikidata.org/w/api.php?action=wbsearchentities&type=item&limit=10&format=json&origin=*&language=tr&uselang=tr&search=' + encodeURIComponent(q);
-        let list = (await (await fetch(url)).json()).search || [];
-        const fb = list.filter((x) => /futbol|football|soccer/i.test(x.description || ''));
-        if (fb.length) list = fb;
+        const list = footballOnly((await (await fetch(SEARCH + encodeURIComponent(q))).json()).search || []);
         box.innerHTML = '';
         list.slice(0, 7).forEach((c) => {
           const b = document.createElement('button'); b.type = 'button';
