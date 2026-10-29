@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ortak Futbolcular</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+  /* Yerleşim: tek sütun, üstte iki kulüp seçici, altta sonuç listesi. Kulüp renkleri çim ve çizgi beyazı. */
+  :root {
+    --bg: #f3f5f1;
+    --surface: #ffffff;
+    --line: #d9dfd5;
+    --fg: #17201a;
+    --muted: #5d6b60;
+    --accent: #1f7a3d;
+    --accent-fg: #ffffff;
+    --warn: #a4471c;
+    --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --font-body: "Source Sans 3", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1711; --surface: #172019; --line: #29372c; --fg: #e8efe9; --muted: #8fa194;
+      --accent: #4cc56f; --accent-fg: #06210f; --warn: #e59a6e; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1711; --surface: #172019; --line: #29372c; --fg: #e8efe9; --muted: #8fa194;
+    --accent: #4cc56f; --accent-fg: #06210f; --warn: #e59a6e; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg); font: 16px/1.5 var(--font-body);
+    padding-block: 24px 48px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  main { max-width: 640px; margin: 0 auto; display: grid; gap: 20px; }
+  h1 { font: 700 2.1rem/1 var(--font-display); letter-spacing: .01em; margin: 0; text-transform: uppercase; text-wrap: balance; }
+  .sub { color: var(--muted); margin: 6px 0 0; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 14px; }
+  label { font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 6px; }
+  input[type=text] {
+    width: 100%; padding: 12px 14px; font: inherit; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px;
+  }
+  input:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .field { position: relative; min-width: 0; }
+  .sug { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+  .sug button { display: flex; justify-content: space-between; gap: 12px; width: 100%; text-align: left; padding: 11px 14px; background: none; border: 0; color: var(--fg); font: inherit; cursor: pointer; }
+  .sug button span { color: var(--muted); font-size: .85rem; }
+  .sug button:hover, .sug button:focus-visible { background: var(--bg); }
+  .picked { margin-top: 6px; min-height: 1.3em; font-size: .85rem; color: var(--accent); font-weight: 600; }
+  .go {
+    padding: 13px 18px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-fg);
+    font: 700 1.15rem var(--font-display); letter-spacing: .04em; text-transform: uppercase; cursor: pointer;
+  }
+  .go:disabled { opacity: .45; cursor: not-allowed; }
+  .load p { margin: 0; }
+  .load .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .btn2 { padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; }
+  .status { color: var(--muted); font-size: .92rem; overflow-wrap: anywhere; }
+  .status.err { color: var(--warn); }
+  details summary { cursor: pointer; font-weight: 600; }
+  details p { color: var(--muted); font-size: .92rem; margin: 8px 0 0; overflow-wrap: anywhere; }
+  .count { font: 700 1.5rem var(--font-display); text-transform: uppercase; margin: 0; }
+  ul.res { list-style: none; margin: 0; padding: 0; display: grid; }
+  ul.res li { padding: 12px 0; border-top: 1px solid var(--line); display: grid; gap: 2px; min-width: 0; }
+  ul.res a { color: var(--fg); font-weight: 600; text-decoration: none; border-bottom: 1px solid var(--line); justify-self: start; overflow-wrap: anywhere; }
+  ul.res .meta { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
+  .note { color: var(--muted); font-size: .82rem; margin: 0; }
+</style>
+</head><body>
+
+<main>
+  <header>
+    <h1>Ortak Futbolcular</h1>
+    <p class="sub">İki kulüp seç, ikisinde de forma giymiş futbolcuları Wikidata'dan canlı getir.</p>
+  </header>
+
+  <section class="panel" id="pickPanel">
+    <div class="field"><label for="qa">1. Kulüp</label><input type="text" id="qa" placeholder="Beşiktaş" autocomplete="off"><div class="sug" id="sa" hidden></div><div class="picked" id="pa"></div></div>
+    <div class="field"><label for="qb">2. Kulüp</label><input type="text" id="qb" placeholder="Juventus" autocomplete="off"><div class="sug" id="sb" hidden></div><div class="picked" id="pb"></div></div>
+    <button class="go" id="go" type="button" disabled>Ortak oyuncuları bul</button>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section id="out" hidden></section>
+</main>
+
+<script>
+/*CORE*/
+function sparql(a, b) {
+  return `SELECT ?p ?pLabel (MIN(?a1) AS ?aFrom) (MAX(?a2) AS ?aTo) (MIN(?b1) AS ?bFrom) (MAX(?b2) AS ?bTo) WHERE {
+  ?p p:P54 ?sa . ?sa ps:P54 wd:${a} .
+  OPTIONAL { ?sa pq:P580 ?s1 } OPTIONAL { ?sa pq:P582 ?e1 }
+  ?p p:P54 ?sb . ?sb ps:P54 wd:${b} .
+  OPTIONAL { ?sb pq:P580 ?s2 } OPTIONAL { ?sb pq:P582 ?e2 }
+  BIND(YEAR(?s1) AS ?a1) BIND(YEAR(?e1) AS ?a2) BIND(YEAR(?s2) AS ?b1) BIND(YEAR(?e2) AS ?b2)
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "tr,en". }
+} GROUP BY ?p ?pLabel`;
+}
+function span(from, to) {
+  if (from == null && to == null) return 'yıl bilinmiyor';
+  if (from != null && to != null) return from === to ? String(from) : from + '–' + to;
+  return from != null ? from + '–' : '–' + to;
+}
+function mapResults(json) {
+  const v = (r, k) => (r[k] && r[k].value !== '' ? Number(r[k].value) : null);
+  return json.results.bindings.map((r) => ({
+    id: r.p.value.split('/').pop(),
+    name: r.pLabel ? r.pLabel.value : r.p.value.split('/').pop(),
+    a: span(v(r, 'aFrom'), v(r, 'aTo')),
+    b: span(v(r, 'bFrom'), v(r, 'bTo')),
+  })).sort((x, y) => x.name.localeCompare(y.name, 'tr'));
+}
+/*END*/
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const picked = { a: null, b: null };
+const setStatus = (t, err) => { $('status').textContent = t; $('status').className = 'status' + (err ? ' err' : ''); };
+
+function picker(key, input, box, label) {
+  let timer;
+  input.addEventListener('input', () => {
+    picked[key] = null; label.textContent = ''; $('go').disabled = true;
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { box.hidden = true; return; }
+    timer = setTimeout(async () => {
+      try {
+        const url = 'https://www.wikidata.org/w/api.php?action=wbsearchentities&type=item&limit=10&format=json&origin=*&language=tr&uselang=tr&search=' + encodeURIComponent(q);
+        const j = await (await fetch(url)).json();
+        let list = j.search || [];
+        const fb = list.filter((x) => /futbol|football|soccer/i.test(x.description || ''));
+        if (fb.length) list = fb;
+        box.innerHTML = '';
+        list.slice(0, 7).forEach((c) => {
+          const b = document.createElement('button'); b.type = 'button';
+          b.innerHTML = `${esc(c.label)}<span>${esc(c.description || '')}</span>`;
+          b.onclick = () => { picked[key] = c; input.value = c.label; label.textContent = '✓ ' + c.label; box.hidden = true; $('go').disabled = !(picked.a && picked.b); };
+          box.appendChild(b);
+        });
+        box.hidden = !list.length;
+      } catch { box.hidden = true; setStatus('Kulüp araması yapılamadı. İnternet bağlantını kontrol et.', true); }
+    }, 350);
+  });
+  document.addEventListener('click', (e) => { if (!box.contains(e.target) && e.target !== input) box.hidden = true; });
+}
+picker('a', $('qa'), $('sa'), $('pa'));
+picker('b', $('qb'), $('sb'), $('pb'));
+
+$('go').onclick = async () => {
+  const { a, b } = picked; if (!a || !b) return;
+  if (a.id === b.id) { setStatus('İki farklı kulüp seç.', true); return; }
+  $('go').disabled = true; $('out').hidden = true; setStatus('Wikidata sorgulanıyor…');
+  try {
+    const res = await fetch('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(sparql(a.id, b.id)), { headers: { Accept: 'application/sparql-results+json' } });
+    if (!res.ok) throw new Error('Wikidata ' + res.status + ' döndürdü');
+    const list = mapResults(await res.json());
+    setStatus('');
+    const items = list.map((p) => `<li><a href="https://www.wikidata.org/wiki/${esc(p.id)}" target="_blank" rel="noopener">${esc(p.name)}</a>
+      <span class="meta">${esc(a.label)}: ${esc(p.a)}</span><span class="meta">${esc(b.label)}: ${esc(p.b)}</span></li>`).join('');
+    $('out').hidden = false;
+    $('out').innerHTML = `<h2 class="count">${list.length} ortak futbolcu</h2>
+      ${list.length ? `<ul class="res">${items}</ul>` : `<p class="note">${esc(a.label)} ve ${esc(b.label)} arasında ortak oyuncu bulunamadı.</p>`}
+      <p class="note">Veri Wikidata'dan canlı gelir. Kayıtlar gönüllüler tarafından girildiği için çok yeni transferler veya az bilinen oyuncular eksik olabilir.</p>`;
+  } catch (e) { setStatus('Sorgu başarısız: ' + e.message, true); }
+  $('go').disabled = false;
+};
+</script>
+</body></html>
